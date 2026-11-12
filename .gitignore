@@ -11,3 +11,6 @@ pa3_dados.zip
 *.pt
 *.pth
 !entrega/*.pt
+
+runs/
+
