@@ -1448,7 +1448,7 @@ wheels = [
 [[package]]
 name = "pa3"
 version = "0.1.0"
-source = { editable = "." }
+source = { virtual = "." }
 dependencies = [
     { name = "albumentations" },
     { name = "gdown" },
