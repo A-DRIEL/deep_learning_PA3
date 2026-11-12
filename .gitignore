@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# dados (415 MB) — baixar com gdown, ver README
+data/
+pa3_dados.zip
+
+# pesos grandes e checkpoints intermediários
+*.pt
+*.pth
+!entrega/*.pt
