@@ -1,0 +1,24 @@
+{
+  "name": "piso_b5_s2",
+  "model": "resnet18.tv_in1k",
+  "budget": 5,
+  "seed": 2,
+  "params": 11187285,
+  "best_epoch": 34,
+  "val_f1": 0.4337125622695023,
+  "test_f1_macro": 0.46220982150960876,
+  "test_acc": 0.48212083847102344,
+  "args": {
+    "model": "resnet18.tv_in1k",
+    "budget": 5,
+    "epochs": 60,
+    "batch_size": 32,
+    "lr": 0.001,
+    "backbone_lr_mult": 0.1,
+    "weight_decay": 0.05,
+    "warmup_epochs": 3,
+    "seed": 2,
+    "workers": 2,
+    "name": "piso_b5_s2"
+  }
+}
