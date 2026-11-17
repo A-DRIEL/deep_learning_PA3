@@ -72,7 +72,23 @@ def figura_confusao(run="p0b_resnet18"):
 
 
 
+def figura_exemplos():
+    """Uma imagem rotulada de cada classe (rotulos_5), para apresentar o problema."""
+    from PIL import Image
+
+    d = data.load_split("rotulos_5").drop_duplicates("label").sort_values("label")
+    fig, axs = plt.subplots(3, 7, figsize=(21, 7))
+    for ax, (_, r) in zip(axs.flat, d.iterrows()):
+        ax.imshow(Image.open(r["path"]).convert("RGB"))
+        ax.set_title(r["label"], fontsize=11)
+        ax.axis("off")
+    fig.tight_layout()
+    fig.savefig(FIG / "p0_exemplos_classes.png", dpi=100)
+    print("salvo:", FIG / "p0_exemplos_classes.png")
+
+
 if __name__ == "__main__":
     FIG.mkdir(exist_ok=True)
     figura_curvas()
     figura_confusao()
+    figura_exemplos()

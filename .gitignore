@@ -17,3 +17,6 @@ runs/logs/
 
 # Grad-CAM de todo o test_public (só para escolher a galeria)
 gradcam_todas/
+
+# material para montar os slides (cópias de figures/ e analysis/)
+apresentacao/
