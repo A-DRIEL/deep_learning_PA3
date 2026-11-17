@@ -47,6 +47,12 @@ def parse_args():
     p.add_argument("--mu", type=int, default=2, help="lote não rotulado = mu * B")
     p.add_argument("--tau", type=float, default=0.95, help="limiar de confiança do pseudo-rótulo")
     p.add_argument("--lambda-u", type=float, default=1.0, help="peso da perda não supervisionada")
+    # Ajustes contra o colapso por viés de confirmação (ver docs/parte1_fixmatch.md).
+    # Padrões = 0 reproduzem exatamente o FixMatch original da varredura de τ.
+    p.add_argument("--label-smoothing", type=float, default=0.0,
+                   help="label smoothing SÓ no ramo rotulado: freia a superconfiança ao decorar as 105 imagens")
+    p.add_argument("--lambda-u-ramp", type=float, default=0.0,
+                   help="fração dos passos em que λ_u sobe linearmente de 0 até --lambda-u (0 = sem rampa)")
     p.add_argument("--correction", default="none", choices=["none", "da", "flex"],
                    help="none | da (alinhamento de distribuição) | flex (limiar por classe)")
     p.add_argument("--da-momentum", type=float, default=0.99)
@@ -196,6 +202,13 @@ def main():
     print(f"{args.model}: {n_params:,} parâmetros | rotuladas={len(lab)} pool={len(pool)} "
           f"val={len(va)} | B={B} uB={uB} | τ={args.tau} correção={args.correction} | {device}")
 
+    # Com label smoothing ε, a confiança máxima que o ramo rotulado "pede" é 1 - ε + ε/C.
+    # Se isso ficar abaixo de τ, quase nenhum pseudo-rótulo passa e o FixMatch vira o piso.
+    teto_conf = 1 - args.label_smoothing + args.label_smoothing / C
+    if args.label_smoothing > 0:
+        print(f"label smoothing={args.label_smoothing}: confiança-alvo máx. no ramo rotulado = {teto_conf:.3f} "
+              f"(τ={args.tau}){'  ATENÇÃO: abaixo de τ!' if teto_conf < args.tau else ''}")
+
     ema = EMA(model, args.ema_decay)
     optimizer = make_optimizer(model, args)
     scheduler = make_scheduler(optimizer, args.steps, args.warmup_frac)
@@ -224,7 +237,7 @@ def main():
         logits_l, logits_w, logits_s = logits.float().split([B, uB, uB])
 
         # (1) perda supervisionada
-        loss_sup = F.cross_entropy(logits_l, yl)
+        loss_sup = F.cross_entropy(logits_l, yl, label_smoothing=args.label_smoothing)
 
         # (2) pseudo-rótulo a partir da visão FRACA (sem gradiente)
         with torch.no_grad():
@@ -243,7 +256,9 @@ def main():
         # Média sobre TODAS as uB imagens (as rejeitadas contribuem 0), como no paper.
         loss_uns = (F.cross_entropy(logits_s, pl, reduction="none") * mask).mean()
 
-        loss = loss_sup + args.lambda_u * loss_uns
+        # rampa de λ_u: no começo a rede ainda é ruim, então os pseudo-rótulos entram com peso baixo
+        ramp = min(1.0, step / (args.lambda_u_ramp * args.steps)) if args.lambda_u_ramp > 0 else 1.0
+        loss = loss_sup + args.lambda_u * ramp * loss_uns
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
         optimizer.step()
