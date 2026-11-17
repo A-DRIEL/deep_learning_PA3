@@ -1,159 +1,133 @@
-# PA3 — Poucos Rótulos: Fauna em Câmeras Trap (Trilha B: FixMatch)
+# PA3 — Poucos rótulos: fauna em armadilhas fotográficas (Trilha B: FixMatch)
 
-Este repositório contém a implementação do **Programming Assignment 3 (Aprendizado Profundo)** focado na classificação de 21 espécies da fauna em imagens de câmeras trap (`ENA24-detection`) utilizando aprendizado semi-supervisionado (**Trilha B — FixMatch**).
+Classificação de 21 espécies em imagens de armadilhas fotográficas (ENA24) com poucos rótulos,
+usando aprendizado semi-supervisionado (**FixMatch**) sobre uma ResNet-18 pré-treinada no ImageNet.
 
-> **Status Atual (Handoff para GPU):** Toda a lógica do pipeline (`src/data.py`, `src/train.py`, `src/fixmatch.py` e `src/pseudolabel_diag.py`) já foi validada via *smoke tests* na CPU (sem erros de dimensão, importação ou cálculo de perda). Como o treino completo exige processamento intensivo de aumentação de dados (*RandAugment*) e milhares de passos, **nenhum modelo definitivo foi treinado ainda**. Este guia descreve a sequência exata para executar os treinos na GPU e consolidar os resultados até a Parte 2.
+**Modelo entregue:** FixMatch + label smoothing + rampa de λ_u + limiar por classe (`flex`),
+orçamento de 20 rótulos por classe. `entrega/model.pt`, 11.187.285 parâmetros,
+**F1 macro 0,626** no test_public (teto do monitor: 0,686).
+
+Todas as escolhas (época, τ, correção, modelo final) foram feitas no **val**; o test_public só foi
+usado para reportar números.
 
 ---
 
-## 1. Ambiente e Dados
+## Ambiente
 
-### Requisitos e Instalação
-O projeto utiliza `uv` para gerenciamento de ambiente e dependências (`PyTorch`, `torchvision`, `timm`, `albumentations`, `scikit-learn`).
+Requer [uv](https://docs.astral.sh/uv/) e Python 3.12. O `pyproject.toml` instala o PyTorch com
+CUDA 12.8 (funciona também só em CPU).
 
 ```bash
-# 1. Sincronizar o ambiente virtual do projeto
 uv sync
-
-# 2. Definir o PYTHONPATH para os scripts em src/
-export PYTHONPATH=src
-# (No Windows PowerShell, use: $env:PYTHONPATH="src")
 ```
 
-### Estrutura de Dados
-Certifique-se de que o pacote `pa3_dados.zip` (415 MB) está extraído no diretório esperado pelos scripts, contendo:
-- `train`: 6.505 imagens (pool não rotulado + subconjuntos rotulados).
-- `rotulos_1.csv`, `rotulos_5.csv`, `rotulos_20.csv`: orçamentos de 1, 5 e 20 rótulos por classe (21, 105 e 420 imagens).
-- `val`: 202 imagens (usado exclusivamente para seleção de época, limiar $\tau$ e correção de viés).
-- `test_public`: 811 imagens (usado apenas para reportar métricas finais; **nunca** usar para escolher hiperparâmetros).
+Dados (`pa3_dados.zip`, 415 MB, link do enunciado), extraídos em `data/pa3_dados/`:
 
-### Resumo Rápido (Comandos Principais)
-- **Comando que treina (modelo final da Trilha B):**
-  ```bash
-  PYTHONPATH=src uv run python src/fixmatch.py --budget 5 --tau <BEST_TAU> --correction <BEST_CORR> --seed 0 --name fm_final
-  ```
-- **Comando que avalia (inferência offline em CPU — entregável final):**
-  ```bash
-  uv run python predict.py imagens <PASTA_IMAGENS> -saida preds.csv
-  ```
+```bash
+uv run gdown 1g7FGqtXOk_ziNKBwQAk8BxjPOaPCnbui -O pa3_dados.zip
+uv run python -c "import zipfile; zipfile.ZipFile('pa3_dados.zip').extractall('data')"
+```
+
+Todos os comandos rodam **da raiz do repositório**. No Windows, se redirecionar a saída para um
+arquivo, defina `PYTHONUTF8=1` (os scripts imprimem a letra τ).
+
+## Comando que treina (modelo entregue)
+
+```bash
+uv run python src/fixmatch.py --budget 20 --seed 0 --tau 0.95 --correction flex \
+    --label-smoothing 0.05 --lambda-u-ramp 0.3 --workers 1 --name fm_flex_b20_s0
+```
+
+~30 min numa RTX 5050. Salva `runs/fm_flex_b20_s0/` (`model.pt`, `history.csv`, `summary.json`,
+`preds_test.csv`, `pseudo_stats.csv`). Para entregar: copiar `model.pt` para `entrega/model.pt`.
+Com pouca RAM, use `--workers 1` (ou `0`); com folga, `--workers 2` é ~2× mais rápido.
+
+## Comando que avalia
+
+```bash
+uv run python predict.py --imagens PASTA --saida preds.csv
+```
+
+Roda em CPU, sem internet, imprime o número de parâmetros e escreve `image_id,label` com os nomes
+de `classes.csv`. Usa `entrega/model.pt` por padrão (`--pesos` para outro checkpoint).
+Tempo medido: 811 imagens em ~45 s (~3 min com 1 thread).
 
 ---
 
-## 2. Parte 0 — O Piso (Baseline Supervisionado)
+## Resultados
 
-O objetivo da Parte 0 é estabelecer a linha de base treinando apenas com os 105 rótulos (`rotulos_5.csv`) e verificar a contagem de parâmetros (limite obrigatório $\le 12.000.000$).
+| | detalhes em |
+|---|---|
+| **Parte 0** — piso: CNN do zero 0,210 × ResNet-18 ImageNet 0,415 (test F1, 105 rótulos) | [docs/parte0.md](docs/parte0.md) |
+| **Parte 1** — FixMatch: varredura de τ, colapso por viés de confirmação, ajuste anticolapso, precisão/cobertura dos pseudo-rótulos, viés e correções (`da`, `flex`) | [docs/parte1_fixmatch.md](docs/parte1_fixmatch.md) |
+| **Parte 2** — curva de orçamento (1, 5, 20 rótulos por classe; 3 seeds no 5) | [docs/parte2.md](docs/parte2.md), [curva_orcamento.csv](curva_orcamento.csv) |
+| **Parte 3** — galeria de erros e acertos com Grad-CAM; atalho de fundo | [docs/parte3.md](docs/parte3.md) |
 
-### 2.1. Piso (b): Backbone ImageNet com Fine-Tuning (`ResNet-18`)
-Este run é **obrigatório antes da Parte 1**, pois gera `runs/p0b_resnet18` (utilizado como referência nos diagnósticos da Trilha B e reaproveitado como `seed 0` do orçamento 5 na Parte 2).
-
-```bash
-export PYTHONPATH=src
-uv run python src/train.py --model resnet18.tv_in1k --budget 5 --seed 0 --epochs 60 --workers 4 --name p0b_resnet18
-```
-* **Conferir:** O log deve imprimir **`11,187,285` parâmetros** e salvar os pesos da melhor época no `val`, além das métricas no `test_public` e dados para a matriz de confusão e curva de treino/validação.
-
-### 2.2. Piso (a): CNN Pequena Treinada do Zero
-Para completar os entregáveis da Parte 0, rode também a versão (a) com uma CNN pequena sem pesos pré-treinados (verifique a flag/arquitetura configurada em `src/train.py` para o modelo *from scratch*):
-
-```bash
-uv run python src/train.py --model <NOME_CNN_PEQUENA> --budget 5 --seed 0 --epochs 60 --workers 4 --name p0a_small_cnn
-```
+| rótulos por classe | piso (test F1) | FixMatch (test F1) |
+|---|---|---|
+| 1 | 0,259 | 0,192 |
+| 5 (3 seeds) | 0,456 ± 0,039 | 0,502 ± 0,016 |
+| 20 | 0,592 | **0,626** |
 
 ---
 
-## 3. Parte 1 — Trilha B: FixMatch e Correção de Viés
+## Estrutura
 
-O roteiro automatizado está em `run_part1.sh`. Como cada run completo de 3.000 passos leva entre 15 e 50 minutos dependendo da CPU/GPU, recomenda-se rodar em segundo plano (`nohup` ou `tmux`) e ajustar `--workers 3` ou `4` caso o uso da GPU fique abaixo de 50%.
+```
+predict.py              inferência (entregável)
+run_part2.sh            todos os treinos da Parte 2 (pula os que já existem)
+src/
+  data.py               leitura dos CSVs, transformações (entrada 224×320), datasets
+  models.py             SmallCNN e ResNet-18 (timm)
+  engine.py             laço de treino/avaliação, métricas
+  train.py              treino supervisionado (piso, Partes 0 e 2)
+  fixmatch.py           FixMatch (+ da, flex, label smoothing, rampa de λ_u)
+  pseudolabel_diag.py   precisão/cobertura dos pseudo-rótulos vs τ e viés (Parte 1)
+  plots_part0.py        curvas, matriz de confusão e exemplos (Parte 0)
+  plots_part1.py        figura do colapso (Parte 1)
+  part2_curve.py        curva_orcamento.csv, gráfico e ganho por classe (Parte 2)
+  gradcam.py            Grad-CAM e galeria (Parte 3)
+notebooks/              exploração dos dados
+runs/<nome>/            resultados de cada treino (sem os pesos)
+analysis/, figures/     tabelas e figuras usadas na apresentação
+docs/                   descrição e análise de cada parte
+entrega/model.pt        pesos do modelo entregue
+```
 
-### Etapa 1.1: Varredura do Limiar $\tau$ no `val` (FixMatch Puro)
-Rode o FixMatch sem correção de viés (`--correction none`) variando $\tau \in \{0.7, 0.8, 0.9, 0.95\}$:
+## Reproduzir tudo
 
 ```bash
-export PYTHONPATH=src
+# Parte 0
+uv run python src/train.py --model smallcnn --budget 5 --epochs 150 --name p0a_smallcnn
+uv run python src/train.py --model resnet18.tv_in1k --budget 5 --epochs 60 --name p0b_resnet18
+uv run python src/plots_part0.py
+
+# Parte 1 (comandos completos em docs/parte1_fixmatch.md)
 for TAU in 0.7 0.8 0.9 0.95; do
-  uv run python src/fixmatch.py --budget 5 --seed 0 --tau $TAU --correction none --workers 4 --name fm_tau${TAU}_none
+  uv run python src/fixmatch.py --budget 5 --seed 0 --tau $TAU --correction none --name fm_tau${TAU}_none
 done
-```
-*(Dica de otimização de tempo: se o tempo de GPU estiver apertado, avalie apenas `{0.8, 0.95}` ou rode a varredura com `--steps 1500`, mantendo `3000` passos nos runs definitivos).*
-
-**Como escolher o `BEST_TAU`:**
-Inspecione o `val_f1` de cada experimento (sem olhar o `test_public`):
-```bash
-uv run python - << 'PY'
-import json, glob
-for f in sorted(glob.glob("runs/fm_tau*_none/summary.json")):
-    s = json.load(open(f))
-    print(f"{s['name']:20s} tau={s['tau']}  val_F1={s['val_f1']:.3f}  melhor_passo={s['best_step']}")
-PY
-```
-Escolha o $\tau$ com maior `val_f1` (em caso de empate técnico com diferença $< 0.02$, prefira o $\tau$ que ativa a máscara de pseudo-rótulos de forma estável sem colapsar para zero).
-
-### Etapa 1.2: Teste das Correções de Desbalanceamento (`da` e `flex`)
-Com o `BEST_TAU` definido na etapa anterior, treine as duas estratégias de mitigação de viés para classes raras (*Distribution Alignment* e *FlexMatch*):
-
-```bash
-BEST_TAU=0.8  # <-- SUBSTITUA pelo melhor tau encontrado no val na Etapa 1.1
-
-uv run python src/fixmatch.py --budget 5 --seed 0 --tau $BEST_TAU --correction da   --workers 4 --name fm_tau${BEST_TAU}_da
-uv run python src/fixmatch.py --budget 5 --seed 0 --tau $BEST_TAU --correction flex --workers 4 --name fm_tau${BEST_TAU}_flex
-```
-
-### Etapa 1.3: Diagnósticos Obrigatórios da Trilha B
-Gere as tabelas de **precisão vs. cobertura por classe** e o diagnóstico de **viés nas classes raras** (salvos em `analysis/`):
-
-```bash
+for CORR in none da flex; do
+  uv run python src/fixmatch.py --budget 5 --seed 0 --tau 0.95 --correction $CORR \
+      --label-smoothing 0.05 --lambda-u-ramp 0.3 --name fm_tau0.95_${CORR}_ls05r30
+done
 uv run python src/pseudolabel_diag.py --baseline p0b_resnet18 \
-    --runs fm_tau${BEST_TAU}_none fm_tau${BEST_TAU}_da fm_tau${BEST_TAU}_flex --tau $BEST_TAU
+    --runs fm_tau0.95_none fm_tau0.95_none_ls05r30 fm_tau0.95_da_ls05r30 fm_tau0.95_flex_ls05r30 --tau 0.95
+uv run python src/plots_part1.py
+
+# Parte 2
+bash run_part2.sh
+uv run python src/part2_curve.py
+
+# Parte 3 (depois de copiar runs/fm_flex_b20_s0/model.pt para entrega/model.pt)
+uv run python src/gradcam.py --erros a6f1f0fd730dbbe7 4a538678f32700c7 53fe911df2430f06 \
+    --acertos e2e960a9c33f1f9e 5f2e2bc78c073630 d7286e00316c3303 168048c13eda2985 0bae2965e3b5ac36
+uv run python src/gradcam.py --mosaico eastern_chipmunk
 ```
 
-**Decisão para a Parte 2:** Compare `fm_tau${BEST_TAU}_none`, `fm_tau${BEST_TAU}_da` e `fm_tau${BEST_TAU}_flex` pelo **`val_f1`** (e verifique no diagnóstico se a correção reduziu a concentração nas classes frequentes e melhorou o desempenho nas 5 classes mais raras). Defina essa configuração vencedora como `BEST_CORR` (`none`, `da` ou `flex`).
+Os resultados de todos os treinos já estão em `runs/` (exceto os pesos), então as análises e figuras
+podem ser regeneradas sem treinar de novo. Os números podem variar um pouco entre máquinas
+(não determinismo da GPU).
 
----
+## Uso de IA
 
-## 4. Parte 2 — Curva de Orçamento (1, 5 e 20 Rótulos por Classe)
-
-Na Parte 2, comparamos o **Piso (`train.py`)** contra o **Método Vencedor da Trilha B (`fixmatch.py`)** nos orçamentos de `1`, `5` e `20` rótulos por classe, tendo como referência o teto do monitor (`F1 macro = 0.686`).
-
-### Economia de Tempo (Reaproveitamento da `seed 0`)
-Para o orçamento de **5 rótulos**, o enunciado exige **3 seeds** (`média ± desvio padrão`), enquanto para os orçamentos de **1 e 20 rótulos** basta **1 seed**.
-- **Já estão prontos (não rodar novamente):**
-  - Piso, orçamento 5, `seed 0`: `runs/p0b_resnet18`
-  - FixMatch, orçamento 5, `seed 0`: `runs/fm_tau${BEST_TAU}_${BEST_CORR}`
-
-### Comandos Restantes da Parte 2
-Substitua `<BEST_TAU>` e `<BEST_CORR>` pelos valores escolhidos na Parte 1 e execute apenas os 6 treinos faltantes:
-
-```bash
-export PYTHONPATH=src
-BEST_TAU=0.8      # <-- AJUSTAR
-BEST_CORR=flex    # <-- AJUSTAR (none, da ou flex)
-
-# 1) Orçamento 5 — Seeds adicionais (seed 1 e seed 2)
-for SEED in 1 2; do
-  uv run python src/train.py --model resnet18.tv_in1k --budget 5 --seed $SEED --epochs 60 --workers 4 --name p0b_b5_s${SEED}
-  uv run python src/fixmatch.py --budget 5 --seed $SEED --tau $BEST_TAU --correction $BEST_CORR --workers 4 --name fm_b5_s${SEED}
-done
-
-# 2) Orçamento 1 (21 imagens rotuladas) — Seed 0
-uv run python src/train.py --model resnet18.tv_in1k --budget 1 --seed 0 --epochs 60 --workers 4 --name p0b_b1_s0
-uv run python src/fixmatch.py --budget 1 --seed 0 --tau $BEST_TAU --correction $BEST_CORR --workers 4 --name fm_b1_s0
-
-# 3) Orçamento 20 (420 imagens rotuladas) — Seed 0
-uv run python src/train.py --model resnet18.tv_in1k --budget 20 --seed 0 --epochs 60 --workers 4 --name p0b_b20_s0
-uv run python src/fixmatch.py --budget 20 --seed 0 --tau $BEST_TAU --correction $BEST_CORR --workers 4 --name fm_b20_s0
-```
-
-### Consolidação do `curva_orcamento.csv`
-Após o término dos runs acima, extraia os resultados de cada `summary.json` para gerar o arquivo obrigatório `curva_orcamento.csv` na raiz do repositório com as colunas exatas:
-`método, orçamento, seed, F1 macro, acurácia`
-
----
-
-## 5. Checklist de Integridade e Próximos Passos
-
-Antes de fechar a apresentação e o repositório final, valide os itens abaixo:
-- [ ] **Nenhum vazamento do `test_public`:** Todo hiperparâmetro ($\tau$, época/passo, correção `da`/`flex`) foi escolhido exclusivamente pelo `val`.
-- [ ] **Limite de parâmetros:** Todos os modelos possuem `11.187.285` parâmetros ($\le 12\text{M}$).
-- [ ] **Parte 3 (Galeria de Falhas e Acertos):** Gerar mapas de saliência (Grad-CAM ou oclusão) usando os pesos do melhor modelo (`seed 0` do orçamento 5) em 3 erros e 5 acertos do `test_public`.
-- [ ] **Script `predict.py`:** Implementar/validar na raiz do projeto o comando `python predict.py imagens PASTA -saida preds.csv` rodando 100% em CPU, sem internet e carregando os pesos salvos do modelo final.
-- [ ] **Logs de IA (`AI_LOG.md`):** Documentar os episódios em que ferramentas de IA foram utilizadas durante o desenvolvimento.
+Ver [AI_LOG.md](AI_LOG.md).
