@@ -125,6 +125,99 @@ ruidosa; mesmo assim seguimos a regra: quem escolhe é o val, o test é só refe
 
 ---
 
+## 3. Diagnósticos obrigatórios: pseudo-rótulos no test_public
+
+```bash
+PYTHONUTF8=1 uv run python src/pseudolabel_diag.py --baseline p0b_resnet18 \
+    --runs fm_tau0.95_none fm_tau0.95_none_ls05r30 fm_tau0.95_da_ls05r30 fm_tau0.95_flex_ls05r30 \
+    --tau 0.95
+# PowerShell: $env:PYTHONUTF8 = "1"; uv run python src/pseudolabel_diag.py ... (tudo em uma linha)
+```
+
+O modelo de cada run (o checkpoint escolhido no val) é usado como **pseudo-rotulador sobre o
+test_public como se ele não tivesse rótulo**: pseudo-rótulo = classe prevista, aceito se a
+confiança ≥ τ. Só depois os rótulos reais entram, para medir. **É só diagnóstico**: τ foi escolhido
+no val (seção 1). Saídas em `analysis/`.
+
+- **precisão_c**: dos que receberam pseudo-rótulo c, fração que é c de fato;
+- **cobertura_c**: das imagens que são c, fração que recebeu algum pseudo-rótulo (certo ou errado);
+- **cobertura útil_c**: das imagens que são c, fração que recebeu o pseudo-rótulo **certo**.
+
+Ressalva: o pseudo-rotulador é o checkpoint do melhor passo no val, não o modelo do fim do treino
+(no `fm_tau0.95_none`, é o do passo 200, antes do colapso).
+
+### 3.1 Precisão e cobertura vs τ
+
+Figuras: `analysis/prec_cov_global_<run>.png` (global) e `analysis/prec_cov_heatmap_<run>.png`
+(por classe). Números: `analysis/prec_cov_<run>.csv`.
+
+| pseudo-rotulador | τ = 0,5 (precisão / cobertura) | τ = 0,8 | τ = 0,95 |
+|---|---|---|---|
+| piso (0b) | 0,71 / 0,38 | 0,89 / 0,10 | 1,00 / **0,009** |
+| FixMatch sem ajuste | 0,76 / 0,48 | 0,92 / 0,30 | 0,98 / 0,17 |
+| FixMatch none + ajuste | | | 0,98 / 0,06 |
+| FixMatch da + ajuste | | | 1,00 / 0,05 |
+| FixMatch flex + ajuste | 0,58 / 0,82 | 0,67 / 0,64 | 0,73 / **0,47** |
+
+- **O trade-off aparece como esperado:** subir τ aumenta a precisão e derruba a cobertura.
+- **O piso quase nunca passa de 0,95 de confiança** (7 imagens de 811): sozinho, ele não serviria
+  de pseudo-rotulador com esse τ.
+- **Com label smoothing as confianças caem**, e a cobertura em τ = 0,95 fica em 5–6 %. É efeito do
+  ajuste (teto de confiança 0,952), não um modelo pior.
+- **O flex aceita muito mais, com menos precisão:** em τ = 0,95, cerca de 1 em cada 4 aceitos está errado.
+
+**Por classe (flex + ajuste, τ = 0,95):**
+- precisão ≥ 0,97 e cobertura útil alta em eastern_gray_squirrel (0,88), eastern_chipmunk (0,87),
+  dog (0,70), white_tailed_deer (0,67), virginia_opossum (0,60);
+- **woodchuck**: 88 aceitos para 22 reais, precisão **0,20**: um sorvedouro de pseudo-rótulos;
+- northern_raccoon: 13 aceitos, **nenhum** certo; striped_skunk precisão 0,43, red_fox 0,55;
+- **nunca pseudo-rotuladas** com confiança: bobcat, grey_fox, bird, horse, eastern_cottontail.
+
+### 3.2 Viés: os pseudo-rótulos vão para as classes grandes?
+
+Figuras: `analysis/bias_distribution.png` (distribuição real × aceita no test, τ = 0,95) e
+`analysis/bias_training_pool.png` (pseudo-rótulos usados no treino, pool não rotulado).
+Números: `analysis/bias_summary.csv` e `analysis/bias_table.csv`.
+
+| pseudo-rotulador | cobertura | precisão | KL(aceitos ‖ real) | fração das 3 maiores classes nos aceitos (real: 0,26) | cobertura útil das 5 mais raras | test F1 (ref.) |
+|---|---|---|---|---|---|---|
+| piso (0b) | 0,009 | 1,00 | 2,21 | 0,00 | 0,00 | 0,415 |
+| FixMatch sem ajuste | 0,173 | 0,98 | 0,84 | 0,24 | 0,07 | 0,456 |
+| none + ajuste | 0,063 | 0,98 | 1,88 | 0,06 | 0,05 | 0,494 |
+| da + ajuste | 0,047 | 1,00 | 2,52 | 0,00 | 0,04 | 0,502 |
+| **flex + ajuste** | **0,469** | 0,73 | **0,57** | 0,19 | **0,18** | 0,485 |
+
+**Não vão para as classes grandes.** As 3 maiores (urso, dog, crow) são 26 % do test e recebem no
+máximo 24 % dos aceitos; o urso, a maior classe, fica sub-representado em todos os runs. O viés vai
+para dois outros lugares:
+
+1. **Classes visualmente fáceis.** Com o ajuste, eastern_gray_squirrel leva **63 %** dos aceitos
+   (none) e **76 %** (da); chipmunk vem logo atrás. São exatamente as classes com recall > 85 % na
+   matriz de confusão da Parte 0.
+2. **Classes-atalho.** woodchuck (e, no treino, opossum e chicken) recebe pseudo-rótulos de imagens
+   que não se parecem com ele, o que é coerente com o modelo ter aprendido o **fundo**
+   (ver Parte 0 e seção 1). Hipótese a verificar com Grad-CAM na Parte 3.
+
+Isso concorda com o que vimos no pool de treino (seções 1 e 2): o viés acompanha a facilidade e o
+fundo, não o tamanho da classe.
+
+### 3.3 Efeito das correções
+
+- **`da` (DistAlign)** não resolve: com o ajuste, os aceitos ficam ainda mais concentrados
+  (KL 2,52, 76 % numa classe só). Com confianças baixas por causa do label smoothing, quase só as
+  classes fáceis passam de τ, e alinhar a média das predições não muda isso.
+- **`flex` (limiar por classe)** é a correção que funciona para o viés: distribuição mais próxima da
+  real (KL 0,57), cobertura útil das classes raras 0,18 (≤ 0,07 nos outros) e o único run que supera o
+  piso no val (0,433). O custo: ao baixar o limiar das classes pouco aceitas, ele também deixa passar
+  **pseudo-rótulos errados das classes-atalho** (woodchuck com precisão 0,20) e a máscara volta a ~100 %
+  no treino (seção 2), com colapso tardio depois do passo 600.
+
+**Resumo para a apresentação:** subir τ troca cobertura por precisão; o viés existe, mas vai para
+classes fáceis e para atalhos de fundo, não para as grandes; o `flex` equilibra a distribuição e é o
+melhor no val, mas espalha os erros de atalho.
+
+---
+
 ## Notas de execução (máquina com 8 GB de RAM)
 
 - Com outros programas abertos, os workers do DataLoader estouram a RAM (`error code 1455`,

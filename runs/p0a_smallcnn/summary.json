@@ -1,0 +1,24 @@
+{
+  "name": "p0a_smallcnn",
+  "model": "smallcnn",
+  "budget": 5,
+  "seed": 0,
+  "params": 2359285,
+  "best_epoch": 106,
+  "val_f1": 0.3106885583906528,
+  "test_f1_macro": 0.21019617124791765,
+  "test_acc": 0.25030826140567203,
+  "args": {
+    "model": "smallcnn",
+    "budget": 5,
+    "epochs": 150,
+    "batch_size": 32,
+    "lr": 0.001,
+    "backbone_lr_mult": 0.1,
+    "weight_decay": 0.05,
+    "warmup_epochs": 3,
+    "seed": 0,
+    "workers": 0,
+    "name": "p0a_smallcnn"
+  }
+}
