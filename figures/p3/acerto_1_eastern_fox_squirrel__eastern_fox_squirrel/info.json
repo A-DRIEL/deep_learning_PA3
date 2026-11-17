@@ -1,0 +1,11 @@
+{
+  "image_id": "e2e960a9c33f1f9e",
+  "classe_real": "eastern_fox_squirrel",
+  "classe_prevista": "eastern_fox_squirrel",
+  "confianca": 0.156,
+  "acertou": true,
+  "tamanho_original": [
+    512,
+    367
+  ]
+}

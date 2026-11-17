@@ -1,0 +1,11 @@
+{
+  "image_id": "a6f1f0fd730dbbe7",
+  "classe_real": "virginia_opossum",
+  "classe_prevista": "american_black_bear",
+  "confianca": 0.113,
+  "acertou": false,
+  "tamanho_original": [
+    512,
+    359
+  ]
+}

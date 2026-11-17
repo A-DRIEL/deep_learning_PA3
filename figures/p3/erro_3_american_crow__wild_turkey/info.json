@@ -1,0 +1,11 @@
+{
+  "image_id": "53fe911df2430f06",
+  "classe_real": "american_crow",
+  "classe_prevista": "wild_turkey",
+  "confianca": 0.398,
+  "acertou": false,
+  "tamanho_original": [
+    512,
+    270
+  ]
+}

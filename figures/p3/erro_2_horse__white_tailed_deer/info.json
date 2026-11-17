@@ -1,0 +1,11 @@
+{
+  "image_id": "4a538678f32700c7",
+  "classe_real": "horse",
+  "classe_prevista": "white_tailed_deer",
+  "confianca": 0.332,
+  "acertou": false,
+  "tamanho_original": [
+    512,
+    359
+  ]
+}

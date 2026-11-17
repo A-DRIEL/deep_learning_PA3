@@ -1,0 +1,11 @@
+{
+  "image_id": "5f2e2bc78c073630",
+  "classe_real": "american_black_bear",
+  "classe_prevista": "american_black_bear",
+  "confianca": 0.169,
+  "acertou": true,
+  "tamanho_original": [
+    512,
+    359
+  ]
+}

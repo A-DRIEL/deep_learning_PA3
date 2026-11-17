@@ -1,0 +1,11 @@
+{
+  "image_id": "d7286e00316c3303",
+  "classe_real": "grey_fox",
+  "classe_prevista": "grey_fox",
+  "confianca": 0.202,
+  "acertou": true,
+  "tamanho_original": [
+    512,
+    367
+  ]
+}
